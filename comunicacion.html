@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComuSindical - UGT Salamanca</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome CDN for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel CDN for JSX transformation in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase SDKs (UMD versions for direct browser use with Babel) -->
+    <!-- Asegúrate de que estas versiones sean compatibles con tu proyecto Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <script type="text/babel">
+        // Define global variables for Firebase configuration and app ID.
+        // These are expected to be provided by the environment where the app runs.
+        // For local testing, you might hardcode them or define them before this script.
+        // Example:
+        // window.__app_id = 'your-app-id';
+        // window.__firebase_config = JSON.stringify({
+        //     apiKey: "YOUR_API_KEY",
+        //     authDomain: "YOUR_AUTH_DOMAIN",
+        //     projectId: "YOUR_PROJECT_ID",
+        //     storageBucket: "YOUR_STORAGE_BUCKET",
+        //     messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+        //     appId: "YOUR_APP_ID"
+        // });
+        // window.__initial_auth_token = 'your-custom-auth-token-if-any';
+
+        // Contexto de la aplicación para compartir instancias de Firebase y el ID de usuario
+        const AppContext = React.createContext(null);
+
+        // Componente principal de la aplicación
+        const App = () => {
+            // Estado para controlar la página actual que se muestra
+            const [currentPage, setCurrentPage] = React.useState('activityLog');
+            // Estados para las instancias de Firebase
+            const [db, setDb] = React.useState(null);
+            const [auth, setAuth] = React.useState(null);
+            // Estado para el ID del usuario actual
+            const [userId, setUserId] = React.useState(null);
+            // Estado para indicar si la autenticación de Firebase está lista
+            const [isAuthReady, setIsAuthReady] = React.useState(false);
+            // Estado para controlar el estado de carga inicial de la aplicación
+            const [loading, setLoading] = React.useState(true);
+            // Estado para manejar errores de inicialización
+            const [error, setError] = React.useState(null);
+
+            // Efecto para inicializar Firebase y manejar la autenticación
+            React.useEffect(() => {
+                try {
+                    // Obtiene la configuración de Firebase de la variable global __firebase_config
+                    const firebaseConfig = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : {};
+                    
+                    // Inicializa la aplicación Firebase usando la API UMD
+                    const app = firebase.initializeApp(firebaseConfig);
+                    
+                    // Obtiene las instancias de Firestore y Auth utilizando la API UMD
+                    const firestoreDb = firebase.firestore();
+                    const firebaseAuth = firebase.auth();
+
+                    setDb(firestoreDb);
+                    setAuth(firebaseAuth);
+
+                    // Suscribe a los cambios de estado de autenticación
+                    const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
+                        if (user) {
+                            // Si hay un usuario logueado, establece su UID
+                            setUserId(user.uid);
+                        } else {
+                            // Si no hay usuario, intenta iniciar sesión con un token personalizado o de forma anónima
+                            const initialAuthToken = typeof window.__initial_auth_token !== 'undefined' ? window.__initial_auth_token : null;
+                            if (initialAuthToken) {
+                                try {
+                                    await firebaseAuth.signInWithCustomToken(initialAuthToken);
+                                    setUserId(firebaseAuth.currentUser?.uid);
+                                } catch (authError) {
+                                    console.error("Error al iniciar sesión con token personalizado:", authError);
+                                    // Fallback a anónimo si el token falla
+                                    await firebaseAuth.signInAnonymously();
+                                    setUserId(firebaseAuth.currentUser?.uid || crypto.randomUUID());
+                                }
+                            } else {
+                                await firebaseAuth.signInAnonymously();
+                                // Genera un UUID si la autenticación anónima no proporciona un UID inmediatamente
+                                setUserId(firebaseAuth.currentUser?.uid || crypto.randomUUID());
+                            }
+                        }
+                        setIsAuthReady(true); // Marca la autenticación como lista
+                        setLoading(false);    // Termina el estado de carga
+                    });
+
+                    // Función de limpieza para desuscribirse del listener
+                    return () => unsubscribe();
+                } catch (e) {
+                    console.error("Error al inicializar Firebase:", e);
+                    setError("Error al inicializar la aplicación. Por favor, inténtelo de nuevo.");
+                    setLoading(false);
+                }
+            }, []); // Se ejecuta solo una vez al montar el componente
+
+            // Muestra un mensaje de carga mientras la aplicación se inicializa
+            if (loading) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                        <p className="text-lg text-gray-700">Cargando aplicación...</p>
+                    </div>
+                );
+            }
+
+            // Muestra un mensaje de error si la inicialización falla
+            if (error) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen bg-red-100 text-red-700 p-4 rounded-lg">
+                        <p>{error}</p>
+                    </div>
+                );
+            }
+
+            return (
+                // Provee el contexto de la aplicación a todos los componentes hijos
+                <AppContext.Provider value={{ db, auth, userId, isAuthReady }}>
+                    <div className="min-h-screen bg-gray-100 font-inter">
+                        {/* Barra de navegación superior */}
+                        <nav className="bg-blue-800 p-4 shadow-md">
+                            <div className="container mx-auto flex flex-wrap justify-between items-center">
+                                <h1 className="text-white text-xl md:text-2xl font-bold rounded-md p-2 text-center md:text-left">
+                                    ComuSindical - UGT Salamanca
+                                </h1>
+                                <div className="flex flex-wrap justify-center md:justify-start space-x-2 md:space-x-4 mt-2 md:mt-0">
+                                    {/* Componentes de navegación para cada módulo */}
+                                    <NavItem label="Registro de Actividad" iconClass="fas fa-clipboard-list" page="activityLog" currentPage={currentPage} setCurrentPage={setCurrentPage} />
+                                    <NavItem label="Comunicación Interna" iconClass="fas fa-users" page="internalComms" currentPage={currentPage} setCurrentPage={setCurrentPage} />
+                                    <NavItem label="Comunicación Externa" iconClass="fas fa-bullhorn" page="externalComms" currentPage={currentPage} setCurrentPage={setCurrentPage} />
+                                    <NavItem label="Análisis y Métricas" iconClass="fas fa-chart-bar" page="analytics" currentPage={currentPage} setCurrentPage={setCurrentPage} />
+                                    <NavItem label="Gestión de Contenidos" iconClass="fas fa-book-open" page="contentManagement" currentPage={currentPage} setCurrentPage={setCurrentPage} />
+                                </div>
+                            </div>
+                        </nav>
+
+                        {/* Contenido principal de la aplicación */}
+                        <main className="container mx-auto p-4">
+                            {/* Muestra el ID de usuario actual */}
+                            {userId && (
+                                <div className="mb-4 text-sm text-gray-600">
+                                    ID de Usuario: <span className="font-mono bg-gray-200 px-2 py-1 rounded-md">{userId}</span>
+                                </div>
+                            )}
+                            {/* Renderiza el componente del módulo actual según el estado currentPage */}
+                            {currentPage === 'activityLog' && <ActivityLog />}
+                            {currentPage === 'internalComms' && <InternalComms />}
+                            {currentPage === 'externalComms' && <ExternalComms />}
+                            {currentPage === 'analytics' && <Analytics />}
+                            {currentPage === 'contentManagement' && <ContentManagement />}
+                        </main>
+                    </div>
+                </AppContext.Provider>
+            );
+        };
+
+        // Componente para los elementos de navegación
+        const NavItem = ({ label, iconClass, page, currentPage, setCurrentPage }) => (
+            <button
+                onClick={() => setCurrentPage(page)}
+                className={`flex items-center space-x-2 px-3 py-1 md:px-4 md:py-2 rounded-md transition-colors duration-200 text-sm md:text-base
+                    ${currentPage === page ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-100 hover:bg-blue-700 hover:text-white'}`}
+            >
+                <i className={`${iconClass} text-lg md:text-xl`}></i>
+                <span>{label}</span>
+            </button>
+        );
+
+        // --- Componentes de Módulos ---
+
+        // Módulo de Registro de Actividad y Contenido
+        const ActivityLog = () => {
+            // Obtiene db, userId y isAuthReady del contexto
+            const { db, userId, isAuthReady } = React.useContext(AppContext);
+            // Estado para el formulario de registro de actividad
+            const [activity, setActivity] = React.useState({
+                category: '',
+                relevance: '',
+                time: '',
+                results: '',
+                observations: ''
+            });
+            // Estado para almacenar las actividades registradas
+            const [activities, setActivities] = React.useState([]);
+            // Estado para mensajes de estado (éxito/error)
+            const [message, setMessage] = React.useState('');
+            const [messageType, setMessageType] = React.useState(''); // 'success' or 'error'
+
+            // Efecto para cargar actividades desde Firestore en tiempo real
+            React.useEffect(() => {
+                // Asegúrate de que Firebase esté inicializado y el usuario autenticado
+                if (!isAuthReady || !db || !userId) return;
+
+                // Obtiene el ID de la aplicación de la variable global __app_id
+                const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+                // Referencia a la colección de actividades del usuario actual (datos privados)
+                const activitiesCollectionRef = db.collection(`artifacts/${appId}/users/${userId}/activities`);
+
+                // Suscribe a los cambios en la colección de actividades
+                const unsubscribe = activitiesCollectionRef.onSnapshot((snapshot) => {
+                    // Mapea los documentos de Firestore a un formato usable en el estado
+                    const fetchedActivities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setActivities(fetchedActivities);
+                }, (error) => {
+                    console.error("Error al cargar actividades:", error);
+                    setMessage("Error al cargar actividades.");
+                    setMessageType('error');
+                });
+
+                // Función de limpieza para desuscribirse del listener
+                return () => unsubscribe();
+            }, [db, userId, isAuthReady]); // Dependencias del efecto
+
+            // Maneja los cambios en los campos del formulario
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setActivity(prev => ({ ...prev, [name]: value }));
+            };
+
+            // Maneja el envío del formulario de actividad
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!db || !userId) {
+                    setMessage("Error: Usuario no autenticado o base de datos no disponible.");
+                    setMessageType('error');
+                    return;
+                }
+
+                const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+                try {
+                    // Añade un nuevo documento a la colección de actividades
+                    await db.collection(`artifacts/${appId}/users/${userId}/activities`).add({
+                        ...activity,
+                        timestamp: new Date(), // Añade la marca de tiempo
+                        userId: userId // Almacena el ID de usuario para referencia
+                    });
+                    setMessage("Actividad registrada con éxito.");
+                    setMessageType('success');
+                    setActivity({ category: '', relevance: '', time: '', results: '', observations: '' }); // Limpia el formulario
+                } catch (e) {
+                    console.error("Error al añadir documento: ", e);
+                    setMessage("Error al registrar la actividad.");
+                    setMessageType('error');
+                }
+            };
+
+            // Calcula el progreso para la gamificación (ejemplo simple)
+            const totalCategories = 7; // Número total de categorías definidas
+            const uniqueCategoriesLogged = new Set(activities.map(act => act.category)).size;
+            const progressPercentage = (uniqueCategoriesLogged / totalCategories) * 100;
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-2xl font-semibold mb-4 text-gray-800">Módulo de Registro de Actividad y Contenido</h2>
+                    {/* Muestra mensajes de estado */}
+                    {message && (
+                        <div className={`p-3 mb-4 rounded-md ${messageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {message}
+                        </div>
+                    )}
+                    {/* Formulario de registro de actividad */}
+                    <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">Categoría:</label>
+                            <select
+                                id="category"
+                                name="category"
+                                value={activity.category}
+                                onChange={handleChange}
+                                required
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            >
+                                <option value="">Seleccione una categoría</option>
+                                <option value="reuniones_internas">Reuniones Internas</option>
+                                <option value="campanas_externas">Campañas Externas</option>
+                                <option value="formaciones">Formaciones</option>
+                                <option value="publicaciones_redes">Publicaciones en Redes</option>
+                                <option value="contacto_medios">Contacto con Medios</option>
+                                <option value="gestion_quejas">Gestión de Quejas</option>
+                                <option value="otros">Otros</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="relevance" className="block text-sm font-medium text-gray-700 mb-1">Etiqueta de Relevancia:</label>
+                            <select
+                                id="relevance"
+                                name="relevance"
+                                value={activity.relevance}
+                                onChange={handleChange}
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            >
+                                <option value="">Seleccione una etiqueta</option>
+                                <option value="potencial_prensa">Potencial para Prensa</option>
+                                <option value="comunicacion_interna_clave">Comunicación Interna Clave</option>
+                                <option value="sensibilizacion">Sensibilización</option>
+                                <option value="informacion_general">Información General</option>
+                            </select>
+                        </div>
+                        <div className="md:col-span-2">
+                            <label htmlFor="time" className="block text-sm font-medium text-gray-700 mb-1">Tiempo Dedicado (horas, opcional):</label>
+                            <input
+                                type="number"
+                                id="time"
+                                name="time"
+                                value={activity.time}
+                                onChange={handleChange}
+                                min="0"
+                                step="0.5"
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label htmlFor="results" className="block text-sm font-medium text-gray-700 mb-1">Resultados y Observaciones:</label>
+                            <textarea
+                                id="results"
+                                name="results"
+                                value={activity.results}
+                                onChange={handleChange}
+                                rows="3"
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                placeholder="Describa el impacto, resultados o sugerencias..."
+                            ></textarea>
+                        </div>
+                        <div className="md:col-span-2">
+                            <button
+                                type="submit"
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition-colors duration-200"
+                            >
+                                Registrar Actividad
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* Sección de Gamificación (simple) */}
+                    <h3 className="text-xl font-semibold mt-8 mb-4 text-gray-800">Tu Progreso en Categorías</h3>
+                    <div className="w-full bg-gray-200 rounded-full h-4 mb-4">
+                        <div
+                            className="bg-purple-600 h-4 rounded-full text-xs flex items-center justify-center text-white"
+                            style={{ width: `${progressPercentage}%` }}
+                        >
+                            {progressPercentage.toFixed(0)}%
+                        </div>
+                    </div>
+                    <p className="text-gray-600 text-sm">Has registrado actividades en {uniqueCategoriesLogged} de {totalCategories} categorías diferentes.</p>
+
+
+                    <h3 className="text-xl font-semibold mt-8 mb-4 text-gray-800">Actividades Registradas</h3>
+                    {activities.length === 0 ? (
+                        <p className="text-gray-600">No hay actividades registradas aún.</p>
+                    ) : (
+                        <ul className="space-y-4">
+                            {activities.map(act => (
+                                <li key={act.id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                                    <p className="text-lg font-medium text-blue-700">{act.category.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())}</p>
+                                    <p className="text-sm text-gray-600">Relevancia: <span className="font-semibold">{act.relevance.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase()) || 'N/A'}</span></p>
+                                    {act.time && <p className="text-sm text-gray-600">Tiempo estimado: {act.time} horas</p>}
+                                    <p className="text-sm text-gray-600 mt-2">Observaciones: {act.results || 'Sin observaciones'}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Registrado el: {new Date(act.timestamp?.toDate()).toLocaleString()}</p>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            );
+        };
+
+        // Módulo de Comunicación Interna y Colaboración
+        const InternalComms = () => {
+            const { db, userId, isAuthReady } = React.useContext(AppContext);
+            // Estado para el mensaje del chat
+            const [message, setMessage] = React.useState('');
+            // Estado para los mensajes del chat
+            const [chatMessages, setChatMessages] = React.useState([]);
+            // Estado para el contenido del anuncio
+            const [announcement, setAnnouncement] = React.useState('');
+            // Estado para los anuncios
+            const [announcements, setAnnouncements] = React.useState([]);
+            // Estado para el contenido de la base de conocimiento
+            const [knowledgeBase, setKnowledgeBase] = React.useState('');
+            // Estado para los elementos de la base de conocimiento
+            const [knowledgeBaseItems, setKnowledgeBaseItems] = React.useState([]);
+            // Estados para mensajes de estado
+            const [statusMessage, setStatusMessage] = React.useState('');
+            const [statusMessageType, setStatusMessageType] = React.useState(''); // 'success' or 'error'
+
+            // Obtiene el ID de la aplicación
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            // Referencias a las colecciones de Firestore (datos públicos)
+            const chatCollectionRef = db.collection(`artifacts/${appId}/public/data/internal_chat`);
+            const announcementsCollectionRef = db.collection(`artifacts/${appId}/public/data/announcements`);
+            const knowledgeBaseCollectionRef = db.collection(`artifacts/${appId}/public/data/knowledge_base`);
+
+
+            // Efecto para cargar datos en tiempo real desde Firestore
+            React.useEffect(() => {
+                if (!isAuthReady || !db) return;
+
+                // Suscribe a los mensajes de chat
+                const unsubscribeChat = chatCollectionRef.orderBy("timestamp").onSnapshot((snapshot) => {
+                    const fetchedMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setChatMessages(fetchedMessages);
+                }, (error) => {
+                    console.error("Error al cargar mensajes de chat:", error);
+                    setStatusMessage("Error al cargar mensajes de chat.");
+                    setStatusMessageType('error');
+                });
+
+                // Suscribe a los anuncios
+                const unsubscribeAnnouncements = announcementsCollectionRef.orderBy("timestamp", "desc").onSnapshot((snapshot) => {
+                    const fetchedAnnouncements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setAnnouncements(fetchedAnnouncements);
+                }, (error) => {
+                    console.error("Error al cargar anuncios:", error);
+                    setStatusMessage("Error al cargar anuncios.");
+                    setStatusMessageType('error');
+                });
+
+                // Suscribe a los elementos de la base de conocimiento
+                const unsubscribeKnowledgeBase = knowledgeBaseCollectionRef.onSnapshot((snapshot) => {
+                    const fetchedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setKnowledgeBaseItems(fetchedItems);
+                }, (error) => {
+                    console.error("Error al cargar base de conocimiento:", error);
+                    setStatusMessage("Error al cargar base de conocimiento.");
+                    setStatusMessageType('error');
+                });
+
+                // Función de limpieza para desuscribirse de todos los listeners
+                return () => {
+                    unsubscribeChat();
+                    unsubscribeAnnouncements();
+                    unsubscribeKnowledgeBase();
+                };
+            }, [db, isAuthReady, appId]); // Dependencias del efecto
+
+            // Maneja el envío de mensajes de chat
+            const handleSendMessage = async (e) => {
+                e.preventDefault();
+                if (!db || !userId || !message.trim()) {
+                    setStatusMessage("Error: El mensaje no puede estar vacío o el usuario no está autenticado.");
+                    setStatusMessageType('error');
+                    return;
+                }
+                try {
+                    await chatCollectionRef.add({
+                        text: message,
+                        userId: userId,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp() // Usa serverTimestamp para la hora del servidor
+                    });
+                    setMessage(''); // Limpia el campo de mensaje
+                    setStatusMessage("Mensaje enviado.");
+                    setStatusMessageType('success');
+                } catch (e) {
+                    console.error("Error al enviar mensaje:", e);
+                    setStatusMessage("Error al enviar el mensaje.");
+                    setStatusMessageType('error');
+                }
+            };
+
+            // Maneja la publicación de anuncios
+            const handlePostAnnouncement = async (e) => {
+                e.preventDefault();
+                if (!db || !userId || !announcement.trim()) {
+                    setStatusMessage("Error: El anuncio no puede estar vacío o el usuario no está autenticado.");
+                    setStatusMessageType('error');
+                    return;
+                }
+                try {
+                    await announcementsCollectionRef.add({
+                        text: announcement,
+                        userId: userId,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    setAnnouncement(''); // Limpia el campo de anuncio
+                    setStatusMessage("Anuncio publicado.");
+                    setStatusMessageType('success');
+                } catch (e) {
+                    console.error("Error al publicar anuncio:", e);
+                    setStatusMessage("Error al publicar el anuncio.");
+                    setStatusMessageType('error');
+                }
+            };
+
+            // Maneja la adición de elementos a la base de conocimiento
+            const handleAddKnowledgeBaseItem = async (e) => {
+                e.preventDefault();
+                if (!db || !userId || !knowledgeBase.trim()) {
+                    setStatusMessage("Error: El contenido de la base de conocimiento no puede estar vacío o el usuario no está autenticado.");
+                    setStatusMessageType('error');
+                    return;
+                }
+                try {
+                    await knowledgeBaseCollectionRef.add({
+                        content: knowledgeBase,
+                        userId: userId,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    setKnowledgeBase(''); // Limpia el campo de base de conocimiento
+                    setStatusMessage("Elemento de base de conocimiento añadido.");
+                    setStatusMessageType('success');
+                } catch (e) {
+                    console.error("Error al añadir elemento a la base de conocimiento:", e);
+                    setStatusMessage("Error al añadir el elemento a la base de conocimiento.");
+                    setStatusMessageType('error');
+                }
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-2xl font-semibold mb-4 text-gray-800">Módulo de Comunicación Interna y Colaboración</h2>
+                    {statusMessage && (
+                        <div className={`p-3 mb-4 rounded-md ${statusMessageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {statusMessage}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Sección de Chat Interno */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Canal de Chat Interno</h3>
+                            <div className="h-64 overflow-y-auto border border-gray-300 p-3 rounded-md bg-gray-50 mb-3">
+                                {chatMessages.length === 0 ? (
+                                    <p className="text-gray-500 text-sm">No hay mensajes aún.</p>
+                                ) : (
+                                    chatMessages.map(msg => (
+                                        <div key={msg.id} className="mb-2">
+                                            <p className="text-sm font-medium text-blue-600">{msg.userId.substring(0, 8)}... <span className="text-xs text-gray-500">({msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString() : 'Cargando...'})</span></p>
+                                            <p className="text-gray-800">{msg.text}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            <form onSubmit={handleSendMessage} className="flex">
+                                <input
+                                    type="text"
+                                    value={message}
+                                    onChange={(e) => setMessage(e.target.value)}
+                                    placeholder="Escribe un mensaje..."
+                                    className="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                <button
+                                    type="submit"
+                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-r-md transition-colors duration-200"
+                                >
+                                    Enviar
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* Sección de Anuncios y Directrices */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Anuncios y Directrices</h3>
+                            <form onSubmit={handlePostAnnouncement} className="mb-4">
+                                <textarea
+                                    value={announcement}
+                                    onChange={(e) => setAnnouncement(e.target.value)}
+                                    rows="2"
+                                    placeholder="Publicar un nuevo anuncio o directriz..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 mb-2"
+                                ></textarea>
+                                <button
+                                    type="submit"
+                                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200"
+                                >
+                                    Publicar Anuncio
+                                </button>
+                            </form>
+                            <div className="h-48 overflow-y-auto border border-gray-300 p-3 rounded-md bg-gray-50">
+                                {announcements.length === 0 ? (
+                                    <p className="text-gray-500 text-sm">No hay anuncios aún.</p>
+                                ) : (
+                                    announcements.map(ann => (
+                                        <div key={ann.id} className="mb-2 p-2 bg-white rounded-md shadow-sm">
+                                            <p className="text-sm font-medium text-purple-700">Anuncio de {ann.userId.substring(0, 8)}...</p>
+                                            <p className="text-gray-800">{ann.text}</p>
+                                            <p className="text-xs text-gray-500 text-right">{ann.timestamp ? new Date(ann.timestamp.toDate()).toLocaleString() : 'Cargando...'}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Sección de Base de Conocimiento / Wiki Interna */}
+                        <div className="lg:col-span-2 border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Base de Conocimiento / Wiki Interna</h3>
+                            <form onSubmit={handleAddKnowledgeBaseItem} className="mb-4">
+                                <textarea
+                                    value={knowledgeBase}
+                                    onChange={(e) => setKnowledgeBase(e.target.value)}
+                                    rows="3"
+                                    placeholder="Añadir un nuevo elemento a la base de conocimiento (FAQ, guía, etc.)..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 mb-2"
+                                ></textarea>
+                                <button
+                                    type="submit"
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200"
+                                >
+                                    Añadir a Base de Conocimiento
+                                </button>
+                            </form>
+                            <div className="h-64 overflow-y-auto border border-gray-300 p-3 rounded-md bg-gray-50">
+                                {knowledgeBaseItems.length === 0 ? (
+                                    <p className="text-gray-500 text-sm">No hay elementos en la base de conocimiento aún.</p>
+                                ) : (
+                                    knowledgeBaseItems.map(item => (
+                                        <div key={item.id} className="mb-2 p-2 bg-white rounded-md shadow-sm">
+                                            <p className="text-gray-800">{item.content}</p>
+                                            <p className="text-xs text-gray-500 text-right">Añadido por {item.userId.substring(0, 8)}... el {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleString() : 'Cargando...'}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Módulo de Identificación de Oportunidades para Comunicación Externa
+        const ExternalComms = () => {
+            const { db, userId, isAuthReady } = React.useContext(AppContext);
+            // Estado para el formulario de comunicado de prensa
+            const [pressRelease, setPressRelease] = React.useState({
+                antetitulo: '',
+                titular: '',
+                subtitulo: '',
+                entradilla: '',
+                cuerpo: '',
+                contacto: ''
+            });
+            // Estado para los comunicados de prensa
+            const [pressReleases, setPressReleases] = React.useState([]);
+            // Estado para el formulario de contacto de medios
+            const [mediaContact, setMediaContact] = React.useState({
+                name: '',
+                email: '',
+                phone: '',
+                type: '',
+                relation: ''
+            });
+            // Estado para los contactos de medios
+            const [mediaContacts, setMediaContacts] = React.useState([]);
+            // Estados para mensajes de estado
+            const [statusMessage, setStatusMessage] = React.useState('');
+            const [statusMessageType, setStatusMessageType] = React.useState('');
+
+            // Obtiene el ID de la aplicación
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            // Referencias a las colecciones de Firestore (datos públicos)
+            const pressReleasesCollectionRef = db.collection(`artifacts/${appId}/public/data/press_releases`);
+            const mediaContactsCollectionRef = db.collection(`artifacts/${appId}/public/data/media_contacts`);
+
+            // Efecto para cargar datos en tiempo real desde Firestore
+            React.useEffect(() => {
+                if (!isAuthReady || !db) return;
+
+                // Suscribe a los comunicados de prensa
+                const unsubscribePressReleases = pressReleasesCollectionRef.orderBy("timestamp", "desc").onSnapshot((snapshot) => {
+                    const fetchedReleases = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setPressReleases(fetchedReleases);
+                }, (error) => {
+                    console.error("Error al cargar comunicados de prensa:", error);
+                    setStatusMessage("Error al cargar comunicados de prensa.");
+                    setStatusMessageType('error');
+                });
+
+                // Suscribe a los contactos de medios
+                const unsubscribeMediaContacts = mediaContactsCollectionRef.orderBy("name").onSnapshot((snapshot) => {
+                    const fetchedContacts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setMediaContacts(fetchedContacts);
+                }, (error) => {
+                    console.error("Error al cargar contactos de medios:", error);
+                    setStatusMessage("Error al cargar contactos de medios.");
+                    setStatusMessageType('error');
+                });
+
+                // Función de limpieza para desuscribirse de todos los listeners
+                return () => {
+                    unsubscribePressReleases();
+                    unsubscribeMediaContacts();
+                };
+            }, [db, isAuthReady, appId]); // Dependencias del efecto
+
+            // Maneja los cambios en el formulario de comunicado de prensa
+            const handlePressReleaseChange = (e) => {
+                const { name, value } = e.target;
+                setPressRelease(prev => ({ ...prev, [name]: value }));
+            };
+
+            // Maneja el envío del formulario de comunicado de prensa
+            const handlePressReleaseSubmit = async (e) => {
+                e.preventDefault();
+                if (!db || !userId || !pressRelease.titular.trim() || !pressRelease.cuerpo.trim()) {
+                    setStatusMessage("Error: El titular y el cuerpo del comunicado son obligatorios.");
+                    setStatusMessageType('error');
+                    return;
+                }
+                try {
+                    await pressReleasesCollectionRef.add({
+                        ...pressRelease,
+                        userId: userId,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    setStatusMessage("Comunicado de prensa guardado con éxito.");
+                    setStatusMessageType('success');
+                    setPressRelease({ antetitulo: '', titular: '', subtitulo: '', entradilla: '', cuerpo: '', contacto: '' }); // Limpia el formulario
+                } catch (e) {
+                    console.error("Error al guardar comunicado de prensa:", e);
+                    setStatusMessage("Error al guardar el comunicado de prensa.");
+                    setStatusMessageType('error');
+                }
+            };
+
+            // Maneja los cambios en el formulario de contacto de medios
+            const handleMediaContactChange = (e) => {
+                const { name, value } = e.target;
+                setMediaContact(prev => ({ ...prev, [name]: value }));
+            };
+
+            // Maneja el envío del formulario de contacto de medios
+            const handleMediaContactSubmit = async (e) => {
+                e.preventDefault();
+                if (!db || !userId || !mediaContact.name.trim() || !mediaContact.email.trim()) {
+                    setStatusMessage("Error: Nombre y email del contacto son obligatorios.");
+                    setStatusMessageType('error');
+                    return;
+                }
+                try {
+                    await mediaContactsCollectionRef.add({
+                        ...mediaContact,
+                        userId: userId,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    setStatusMessage("Contacto de medios añadido con éxito.");
+                    setStatusMessageType('success');
+                    setMediaContact({ name: '', email: '', phone: '', type: '', relation: '' }); // Limpia el formulario
+                } catch (e) {
+                    console.error("Error al añadir contacto de medios:", e);
+                    setStatusMessage("Error al añadir el contacto de medios.");
+                    setStatusMessageType('error');
+                }
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-2xl font-semibold mb-4 text-gray-800">Módulo de Identificación de Oportunidades para Comunicación Externa</h2>
+                    {statusMessage && (
+                        <div className={`p-3 mb-4 rounded-md ${statusMessageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {statusMessage}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Sección de Gestión de Notas de Prensa/Comunicados */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Gestión de Notas de Prensa/Comunicados</h3>
+                            <form onSubmit={handlePressReleaseSubmit} className="space-y-3">
+                                <div>
+                                    <label htmlFor="antetitulo" className="block text-sm font-medium text-gray-700">Antetítulo:</label>
+                                    <input type="text" id="antetitulo" name="antetitulo" value={pressRelease.antetitulo} onChange={handlePressReleaseChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <div>
+                                    <label htmlFor="titular" className="block text-sm font-medium text-gray-700">Titular (Obligatorio):</label>
+                                    <input type="text" id="titular" name="titular" value={pressRelease.titular} onChange={handlePressReleaseChange} required className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <div>
+                                    <label htmlFor="subtitulo" className="block text-sm font-medium text-gray-700">Subtítulo:</label>
+                                    <input type="text" id="subtitulo" name="subtitulo" value={pressRelease.subtitulo} onChange={handlePressReleaseChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <div>
+                                    <label htmlFor="entradilla" className="block text-sm font-medium text-gray-700">Entradilla:</label>
+                                    <textarea id="entradilla" name="entradilla" value={pressRelease.entradilla} onChange={handlePressReleaseChange} rows="2" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"></textarea>
+                                </div>
+                                <div>
+                                    <label htmlFor="cuerpo" className="block text-sm font-medium text-gray-700">Cuerpo (Obligatorio):</label>
+                                    <textarea id="cuerpo" name="cuerpo" value={pressRelease.cuerpo} onChange={handlePressReleaseChange} rows="5" required className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"></textarea>
+                                </div>
+                                <div>
+                                    <label htmlFor="contacto" className="block text-sm font-medium text-gray-700">Datos de Contacto:</label>
+                                    <input type="text" id="contacto" name="contacto" value={pressRelease.contacto} onChange={handlePressReleaseChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition-colors duration-200">
+                                    Guardar Comunicado
+                                </button>
+                            </form>
+
+                            <h4 className="text-lg font-semibold mt-6 mb-3 text-gray-700">Comunicados Guardados</h4>
+                            {pressReleases.length === 0 ? (
+                                <p className="text-gray-500 text-sm">No hay comunicados de prensa guardados aún.</p>
+                            ) : (
+                                <ul className="space-y-3">
+                                    {pressReleases.map(pr => (
+                                        <li key={pr.id} className="bg-gray-50 p-3 rounded-lg shadow-sm border border-gray-200">
+                                            <p className="text-md font-semibold text-blue-800">{pr.titular}</p>
+                                            {pr.antetitulo && <p className="text-sm text-gray-600">Antetítulo: {pr.antetitulo}</p>}
+                                            {pr.subtitulo && <p className="text-sm text-gray-600">Subtítulo: {pr.subtitulo}</p>}
+                                            <p className="text-sm text-gray-700 mt-1">{pr.cuerpo.substring(0, 100)}...</p>
+                                            <p className="text-xs text-gray-500 text-right">{pr.timestamp ? new Date(pr.timestamp.toDate()).toLocaleString() : 'Cargando...'}</p>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        {/* Sección de Directorio de Medios y Periodistas */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Directorio de Medios y Periodistas</h3>
+                            <form onSubmit={handleMediaContactSubmit} className="space-y-3">
+                                <div>
+                                    <label htmlFor="contactName" className="block text-sm font-medium text-gray-700">Nombre (Obligatorio):</label>
+                                    <input type="text" id="contactName" name="name" value={mediaContact.name} onChange={handleMediaContactChange} required className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <div>
+                                    <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-700">Email (Obligatorio):</label>
+                                    <input type="email" id="contactEmail" name="email" value={mediaContact.email} onChange={handleMediaContactChange} required className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <div>
+                                    <label htmlFor="contactPhone" className="block text-sm font-medium text-gray-700">Teléfono:</label>
+                                    <input type="text" id="contactPhone" name="phone" value={mediaContact.phone} onChange={handleMediaContactChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <div>
+                                    <label htmlFor="contactType" className="block text-sm font-medium text-gray-700">Tipo de Medio:</label>
+                                    <input type="text" id="contactType" name="type" value={mediaContact.type} onChange={handleMediaContactChange} placeholder="Ej: Periódico, Radio, TV, Digital" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <div>
+                                    <label htmlFor="contactRelation" className="block text-sm font-medium text-gray-700">Relación:</label>
+                                    <input type="text" id="contactRelation" name="relation" value={mediaContact.relation} onChange={handleMediaContactChange} placeholder="Ej: Contacto frecuente, Nuevo" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" />
+                                </div>
+                                <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
+                                    Añadir Contacto
+                                </button>
+                            </form>
+
+                            <h4 className="text-lg font-semibold mt-6 mb-3 text-gray-700">Contactos Registrados</h4>
+                            {mediaContacts.length === 0 ? (
+                                <p className="text-gray-500 text-sm">No hay contactos de medios registrados aún.</p>
+                            ) : (
+                                <ul className="space-y-3">
+                                    {mediaContacts.map(contact => (
+                                        <li key={contact.id} className="bg-gray-50 p-3 rounded-lg shadow-sm border border-gray-200">
+                                            <p className="text-md font-semibold text-green-800">{contact.name}</p>
+                                            <p className="text-sm text-gray-700">Email: {contact.email}</p>
+                                            {contact.phone && <p className="text-sm text-gray-600">Teléfono: {contact.phone}</p>}
+                                            {contact.type && <p className="text-sm text-gray-600">Tipo: {contact.type}</p>}
+                                            {contact.relation && <p className="text-sm text-gray-600">Relación: {contact.relation}</p>}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Módulo de Análisis y Métricas
+        const Analytics = () => {
+            const { db, userId, isAuthReady } = React.useContext(AppContext);
+            // Estado para las actividades (para el análisis)
+            const [activities, setActivities] = React.useState([]);
+            // Estados para mensajes de estado
+            const [statusMessage, setStatusMessage] = React.useState('');
+            const [statusMessageType, setStatusMessageType] = React.useState('');
+
+            // Efecto para cargar actividades del usuario para el análisis
+            React.useEffect(() => {
+                if (!isAuthReady || !db || !userId) return;
+
+                const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+                // Referencia a la colección de actividades del usuario (datos privados)
+                const activitiesCollectionRef = db.collection(`artifacts/${appId}/users/${userId}/activities`);
+
+                // Suscribe a los cambios en la colección de actividades
+                const unsubscribe = activitiesCollectionRef.onSnapshot((snapshot) => {
+                    const fetchedActivities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setActivities(fetchedActivities);
+                }, (error) => {
+                    console.error("Error al cargar actividades para análisis:", error);
+                    setStatusMessage("Error al cargar datos para análisis.");
+                    setStatusMessageType('error');
+                });
+
+                // Función de limpieza
+                return () => unsubscribe();
+            }, [db, userId, isAuthReady]); // Dependencias del efecto
+
+            // Análisis simple: cuenta actividades por categoría
+            const activityCounts = activities.reduce((acc, activity) => {
+                acc[activity.category] = (acc[activity.category] || 0) + 1;
+                return acc;
+            }, {});
+
+            // Análisis simple: tiempo total dedicado
+            const totalTimeDedicated = activities.reduce((acc, activity) => {
+                return acc + (parseFloat(activity.time) || 0);
+            }, 0);
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-2xl font-semibold mb-4 text-gray-800">Módulo de Análisis y Métricas</h2>
+                    {statusMessage && (
+                        <div className={`p-3 mb-4 rounded-md ${statusMessageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {statusMessage}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Reportes de Actividad */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Reportes de Actividad</h3>
+                            <p className="text-gray-700 mb-2">Total de actividades registradas: <span className="font-bold">{activities.length}</span></p>
+                            <p className="text-gray-700 mb-4">Tiempo total estimado dedicado: <span className="font-bold">{totalTimeDedicated} horas</span></p>
+
+                            <h4 className="text-lg font-semibold mb-2 text-gray-700">Actividades por Categoría:</h4>
+                            {Object.keys(activityCounts).length === 0 ? (
+                                <p className="text-gray-500 text-sm">No hay datos de actividad para mostrar.</p>
+                            ) : (
+                                <ul className="list-disc list-inside space-y-1">
+                                    {Object.entries(activityCounts).map(([category, count]) => (
+                                        <li key={category} className="text-gray-700">
+                                            {category.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())}: <span className="font-bold">{count}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        {/* Marcador de posición para otros análisis */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Análisis de Eficacia de Canales (Próximamente)</h3>
+                            <p className="text-gray-600">Esta sección mostrará métricas detalladas sobre el rendimiento de los diferentes canales de comunicación (web, redes sociales, boletines, etc.).</p>
+                            <p className="text-gray-500 text-sm mt-2">Funcionalidades futuras podrían incluir gráficos interactivos y detección de tendencias.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Módulo de Gestión de Contenidos y Recursos
+        const ContentManagement = () => {
+            const { db, userId, isAuthReady } = React.useContext(AppContext);
+            // Estado para la guía de estilo
+            const [styleGuide, setStyleGuide] = React.useState('');
+            // Estado para el protocolo de crisis
+            const [crisisProtocol, setCrisisProtocol] = React.useState('');
+            // Estados para mensajes de estado
+            const [statusMessage, setStatusMessage] = React.useState('');
+            const [statusMessageType, setStatusMessageType] = React.useState('');
+
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            // Referencia al documento de gestión de contenidos (datos públicos)
+            const contentManagementDocRef = db.collection(`artifacts/${appId}/public/data/content_management`).doc('main_settings');
+
+            // Efecto para cargar la configuración de gestión de contenidos
+            React.useEffect(() => {
+                if (!isAuthReady || !db) return;
+
+                // Suscribe a los cambios en el documento de configuración
+                const unsubscribe = contentManagementDocRef.onSnapshot((docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        setStyleGuide(data.styleGuide || '');
+                        setCrisisProtocol(data.crisisProtocol || '');
+                    } else {
+                        console.log("No se encontraron configuraciones de gestión de contenidos, iniciando desde cero.");
+                    }
+                }, (error) => {
+                    console.error("Error al cargar la configuración de gestión de contenidos:", error);
+                    setStatusMessage("Error al cargar la configuración de gestión de contenidos.");
+                    setStatusMessageType('error');
+                });
+
+                // Función de limpieza
+                return () => unsubscribe();
+            }, [db, isAuthReady, appId]); // Dependencias del efecto
+
+            // Maneja el guardado de la configuración
+            const handleSaveSettings = async () => {
+                if (!db || !userId) {
+                    setStatusMessage("Error: Usuario no autenticado o base de datos no disponible.");
+                    setStatusMessageType('error');
+                    return;
+                }
+                try {
+                    // Guarda los datos en el documento, fusionando con los existentes
+                    await contentManagementDocRef.set({
+                        styleGuide: styleGuide,
+                        crisisProtocol: crisisProtocol,
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedBy: userId
+                    }, { merge: true }); // Usa merge para no sobrescribir otros campos si se añaden más tarde
+                    setStatusMessage("Configuración guardada con éxito.");
+                    setStatusMessageType('success');
+                } catch (e) {
+                    console.error("Error al guardar la configuración de gestión de contenidos:", e);
+                    setStatusMessage("Error al guardar la configuración.");
+                    setStatusMessageType('error');
+                }
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-2xl font-semibold mb-4 text-gray-800">Módulo de Gestión de Contenidos y Recursos</h2>
+                    {statusMessage && (
+                        <div className={`p-3 mb-4 rounded-md ${statusMessageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {statusMessage}
+                        </div>
+                    )}
+
+                    <div className="space-y-6">
+                        {/* Guía de Estilo */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Guía de Estilo y Lenguaje</h3>
+                            <textarea
+                                value={styleGuide}
+                                onChange={(e) => setStyleGuide(e.target.value)}
+                                rows="10"
+                                placeholder="Escriba aquí las directrices para logotipos, colores, fuentes, y una guía de lenguaje inclusivo, no sexista y crítico..."
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            ></textarea>
+                        </div>
+
+                        {/* Protocolo de Crisis */}
+                        <div className="border border-gray-200 rounded-lg p-4">
+                            <h3 className="text-xl font-semibold mb-3 text-gray-700">Protocolo de Crisis de Reputación</h3>
+                            <textarea
+                                value={crisisProtocol}
+                                onChange={(e) => setCrisisProtocol(e.target.value)}
+                                rows="10"
+                                placeholder="Describa las pautas claras para actuar ante situaciones de crisis de imagen..."
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            ></textarea>
+                        </div>
+
+                        <button
+                            onClick={handleSaveSettings}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-md shadow-md transition-colors duration-200"
+                        >
+                            Guardar Configuración de Contenidos
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // Renderiza la aplicación React en el div con id "root"
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
